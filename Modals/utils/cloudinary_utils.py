@@ -11,6 +11,7 @@ cloudinary.config(
     api_secret="khRZlG5lvjBiuvzJZZbmdIyf3OE"
 )
 
+
 def upload_media(video_path, image_frame, suspects, cam_id="CAM1"):
     # upload video
     video_result = cloudinary.uploader.upload_large(
@@ -20,26 +21,31 @@ def upload_media(video_path, image_frame, suspects, cam_id="CAM1"):
     )
     video_url = video_result["secure_url"]
 
-    # save temporary snapshot
-    img_name = f"snapshot_{uuid.uuid4().hex}.jpg"
-    cv2.imwrite(img_name, image_frame)
-
-    image_result = cloudinary.uploader.upload(
-        img_name,
-        folder="sri_images"
-    )
-    image_url = image_result["secure_url"]
-    os.remove(img_name)
+    image_url = None
+    if image_frame is not None and hasattr(image_frame, "shape") and image_frame.size > 0:
+        img_name = f"snapshot_{uuid.uuid4().hex}.jpg"
+        ok = cv2.imwrite(img_name, image_frame)
+        if ok:
+            image_result = cloudinary.uploader.upload(
+                img_name,
+                folder="sri_images"
+            )
+            image_url = image_result["secure_url"]
+        else:
+            print("[WARN] Snapshot frame was invalid. Skipping image upload.")
+        if os.path.exists(img_name):
+            os.remove(img_name)
+    else:
+        print("[WARN] No valid snapshot frame. Skipping image upload.")
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # mongo compatible record
     record = {
         "suspects": list(suspects),
         "camera_id": cam_id,
         "timestamp": timestamp,
         "video_url": video_url,
-        "image_url": image_url
+        "image_url": image_url,
     }
 
     return record
