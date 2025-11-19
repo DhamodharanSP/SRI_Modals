@@ -8,73 +8,72 @@ RESIZE_HEIGHT = 480
 RECORD_DURATION = 3
 OUTPUT_DIR = "recordings"
 
-recording = False
-record_buffer = []
-record_start_time = 0
-recording_suspects = set()
-snapshot_frame = None
-snapshot_taken = False
 
+class CameraRecorder:
+    def __init__(self, cam_id):
+        self.cam_id = cam_id
 
-def start_recording(suspects):
-    global recording, record_start_time, record_buffer
-    global recording_suspects, snapshot_taken, snapshot_frame
+        self.recording = False
+        self.record_buffer = []
+        self.record_start_time = 0
+        self.recording_suspects = set()
+        self.snapshot_frame = None
+        self.snapshot_taken = False
 
-    recording = True
-    record_start_time = time.time()
-    record_buffer = []
-    recording_suspects = suspects.copy()
-    snapshot_taken = False
-    snapshot_frame = None
+    def start(self, suspects):
+        self.recording = True
+        self.record_start_time = time.time()
+        self.record_buffer = []
+        self.recording_suspects = suspects.copy()
+        self.snapshot_frame = None
+        self.snapshot_taken = False
 
-    print("[INFO] Recording started for:", suspects)
+        print(f"[{self.cam_id}] Recording started for:", suspects)
 
+    def stop(self):
+        self.recording = False
 
-def stop_recording():
-    global recording, record_buffer, recording_suspects, snapshot_frame
+        duration = time.time() - self.record_start_time
+        total_frames = len(self.record_buffer)
 
-    recording = False
-    duration = time.time() - record_start_time
-    total_frames = len(record_buffer)
-    if total_frames == 0:
-        print("[WARN] No frames in buffer. Nothing to save.")
-        return None
+        if total_frames == 0:
+            print(f"[{self.cam_id}] No frames captured. Skipped.")
+            return None
 
-    actual_fps = total_frames / duration
-    actual_fps = max(5, min(actual_fps, 30))
+        actual_fps = total_frames / duration
+        actual_fps = max(5, min(actual_fps, 30))
 
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    name_part = "_".join(sorted(list(recording_suspects))) or "unknown"
-    filename = f"{OUTPUT_DIR}/{timestamp}_{name_part}.mp4"
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # first try avc1, fall back to mp4v if it fails
-    fourcc = cv2.VideoWriter_fourcc(*"avc1")
-    writer = cv2.VideoWriter(filename, fourcc, actual_fps,(RESIZE_WIDTH, RESIZE_HEIGHT))
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        name_part = "_".join(sorted(list(self.recording_suspects))) or "unknown"
+        filename = f"{OUTPUT_DIR}/{self.cam_id}_{timestamp}_{name_part}.mp4"
 
-    if not writer.isOpened():
-        print("[WARN] avc1 not available. Falling back to mp4v.")
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(filename, fourcc, actual_fps, RESIZE_WIDTH, RESIZE_HEIGHT)
+        # safe fourcc
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
+        writer = cv2.VideoWriter(filename, fourcc, actual_fps, (RESIZE_WIDTH, RESIZE_HEIGHT))
 
-    if not writer.isOpened():
-        print("[ERROR] Could not open VideoWriter. Recording not saved.")
-        return None
+        if not writer.isOpened():
+            print(f"[{self.cam_id}] avc1 failed, using mp4v")
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(filename, fourcc, actual_fps, (RESIZE_WIDTH, RESIZE_HEIGHT))
 
-    for frame in record_buffer:
-        writer.write(frame)
-    writer.release()
+        for frame in self.record_buffer:
+            writer.write(frame)
+        writer.release()
 
-    # choose snapshot if not already set
-    if snapshot_frame is None:
-        snapshot_frame = record_buffer[0]
+        # ensure snapshot exists
+        if self.snapshot_frame is None:
+            self.snapshot_frame = self.record_buffer[0]
+            #len(self.record_buffer)//2 -> Use this in case of retrieving middle frame
 
-    cloud_result = upload_media(
-        video_path=filename,
-        image_frame=snapshot_frame,
-        suspects=recording_suspects
-    )
+        cloud_result = upload_media(
+            video_path=filename,
+            image_frame=self.snapshot_frame,
+            suspects=self.recording_suspects,
+            cam_id=self.cam_id,
+        )
 
-    print(f"[INFO] Saved recording: {filename}")
-    print(f"[INFO] Duration: {duration:.2f}s  Frames: {total_frames}  FPS: {actual_fps:.1f}")
-    return cloud_result
+        print(f"[{self.cam_id}] Saved recording: {filename}")
+
+        return cloud_result
